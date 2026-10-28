@@ -95,3 +95,29 @@ assert.equal(listeners.get('touchmove').options.passive,false);
 keys.get('keydown')({...event,key:'d'});assert.equal(blocked,3,'Musical keys are not blocked');
 keys.get('keydown')({...event,key:'+',ctrlKey:true});assert.equal(blocked,4);
 console.log('PASS: pending-action lock, repeated clicks, lock recovery, menu debounce, pinch/double-tap guards, normal touch and musical keys');
+
+
+assert.equal(rules.resultGrade(.95),'S');assert.equal(rules.resultGrade(.85),'A');
+assert.equal(rules.resultGrade(.7),'B');assert.equal(rules.resultGrade(.69),'C');
+assert.deepEqual(rules.comboProgress(9),{next:10,fill:.9});
+assert.deepEqual(rules.comboProgress(10),{next:25,fill:0});
+assert.equal(rules.comboProgress(24).next,25);assert.equal(rules.comboProgress(100).next,150);
+for(const milestone of [10,25,50,100,150])assert(rules.isComboMilestone(milestone));
+assert(!rules.isComboMilestone(11));
+assert.equal(rules.noteTravelSpeed(300,'easy'),150);
+assert.equal(rules.noteTravelSpeed(150,'easy'),75);
+assert(rules.noteTravelSpeed(300,'hard')>rules.noteTravelSpeed(300,'normal'));
+
+context.setTimeout=()=>123;context.clearTimeout=()=>{};
+await vm.runInContext(`(async()=>{
+ let notesPlayed=0,stops=0;
+ previewAudio.reset=async()=>{previewAudio.ctx={currentTime:0};previewAudio.music={gain:{value:1}};};
+ previewAudio.tone=()=>{notesPlayed++;};previewAudio.stop=async()=>{stops++;previewAudio.ctx=null;};
+ state='idle';await togglePreview();
+ if(!previewRunning||notesPlayed===0||previewTimer!==123)throw Error('Preview start failed');
+ selectSong(SONGS[1].id);
+ if(previewRunning||previewAudio.ctx!==null||previewTimer!==null)throw Error('Song change must stop preview');
+ await togglePreview();await home();
+ if(previewRunning||previewAudio.ctx!==null||stops<2)throw Error('Home must stop preview');
+})()`,context);
+console.log('PASS: grade boundaries, combo targets/milestones, constant reaction time, preview playback and cancellation');

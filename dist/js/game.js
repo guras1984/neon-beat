@@ -1,9 +1,9 @@
-import {createActionGuard,createTapGuard,installZoomLock} from './controls.js?v=10';
-import {makeSong,SONGS} from './song.js?v=10';
-import {AudioEngine} from './audio.js?v=10';
-import {timingGrade,carouselDistance,wrapIndex,holdReleaseIsValid} from './rules.js?v=10';
+import {createActionGuard,createTapGuard,installZoomLock} from './controls.js?v=11';
+import {makeSong,SONGS} from './song.js?v=11';
+import {AudioEngine} from './audio.js?v=11';
+import {timingGrade,carouselDistance,wrapIndex,holdReleaseIsValid,resultGrade,comboProgress,isComboMilestone,noteTravelSpeed} from './rules.js?v=11';
 const $=id=>document.getElementById(id);
-const canvas=$('canvas'),ctx=canvas.getContext('2d'),audio=new AudioEngine();
+const canvas=$('canvas'),ctx=canvas.getContext('2d'),audio=new AudioEngine(),previewAudio=new AudioEngine();
 const buttons=[...document.querySelectorAll('[data-lane]')];
 const colors=['#c44885','#2684af','#8651b5','#be8619'];
 let selectedSong='turkish',level='easy',state='idle',song,chart=[];
@@ -11,7 +11,7 @@ let score=0,combo=0,maxCombo=0,total=0,judged=0,origin=0,autoIndex=0,beatIndex=0
 let flashes=[0,0,0,0],particles=[],judgeUntil=0,burstUntil=0,starting=false,resumeGrace=0;
 const held=new Set(),pointers=new Map();
 const runControl=createActionGuard(),allowSongTap=createTapGuard(),allowDifficultyTap=createTapGuard();
-let cdAnimation=null,switchingPause=false;
+let cdAnimation=null,switchingPause=false,previewToken=0,previewTimer=null,previewRunning=false;
 installZoomLock(document,window);
 function read(key,fallback){try{return localStorage.getItem(key)??fallback;}catch{return fallback;}}
 function write(key,value){try{localStorage.setItem(key,value);}catch{}}
@@ -24,6 +24,7 @@ for(const id of ['music','effects','offset']) {
 }
 function volume(){
   if(audio.music){audio.music.gain.value=$('music').value/100;audio.effects.gain.value=$('effects').value/100;}
+  if(previewAudio.music)previewAudio.music.gain.value=$('music').value/100;
   offset=Number($('offset').value)/1000;
   $('offset-value').textContent=`${$('offset').value} ms`;
 }
@@ -37,9 +38,23 @@ document.querySelectorAll('[data-level]').forEach(button=>button.onclick=()=>{
 function hud(){
   $('score').textContent=String(score).padStart(6,'0');$('combo').textContent=combo;
   $('accuracy').textContent=judged?`${(total/judged*100).toFixed(1)}%`:'—';
+  const progress=comboProgress(combo),meter=$('combo-meter');
+  meter.style.setProperty('--combo-fill',`${progress.fill*360}deg`);
+  meter.setAttribute('aria-valuenow',String(combo));meter.setAttribute('aria-valuemax',String(progress.next));
+  $('combo-target').textContent=`NEXT ${progress.next}`;
 }
-function feedback(text,color){$('judge').textContent=text;$('judge').style.color=color;judgeUntil=performance.now()+500;}
+function animateUI(element,frames,options){
+  if(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)return;
+  element?.getAnimations?.().forEach(animation=>animation.cancel());
+  return element?.animate?.(frames,options);
+}
+function feedback(text,color){
+  $('judge').textContent=text;$('judge').style.color=color;judgeUntil=performance.now()+(text==='MISS'?650:500);
+  animateUI($('judge'),[{transform:'translateY(8px) scale(.8)',opacity:0},{transform:'translateY(0) scale(1.12)',opacity:1,offset:.25},{transform:'scale(1)',opacity:1}],{duration:300,easing:'ease-out'});
+  if(text==='MISS')animateUI($('lane-feedback'),[{opacity:.7,transform:'scaleX(.85)'},{opacity:0,transform:'scaleX(1.1)'}],{duration:550,easing:'ease-out'});
+}
 function showOverlay(label,title,copy,button){
+  $('result-grade').hidden=true;
   $('overlay-label').textContent=label;$('overlay-title').textContent=title;$('overlay-copy').textContent=copy;
   $('start').innerHTML=`${button} <span>↗</span>`;$('difficulty').hidden=state==='paused';$('overlay').hidden=false;
 }
@@ -47,7 +62,7 @@ async function start(){
   if(starting||!['idle','ended'].includes(state))return;
   starting=true;$('start').disabled=true;$('home').disabled=true;
   try{
-    await audio.reset();volume();song=makeSong(level,selectedSong);
+    await stopPreview();await audio.reset();volume();song=makeSong(level,selectedSong);
     chart=song.notes.filter(n=>n.playable).map(n=>({...n,result:null}));
     score=combo=maxCombo=total=judged=autoIndex=beatIndex=0;particles=[];held.clear();pointers.clear();hud();
     origin=audio.ctx.currentTime+3;state='playing';$('song-picker').hidden=true;
@@ -81,7 +96,8 @@ function finish(){
   if(score>Number(read(bestKey(),'0')))write(bestKey(),score);refreshBest();
   const accuracy=judged?total/judged:0;
   showOverlay('PERFORMANCE COMPLETE',accuracy>.9?'무대를 찢었어요!':'좋아요, 한 판 더?',
-    `정확도 ${(accuracy*100).toFixed(1)}% · 최대 콤보 ${maxCombo} · MISS ${chart.filter(n=>n.result==='MISS').length}`,'다시 연주');
+    `점수 ${score.toLocaleString()} · 정확도 ${(accuracy*100).toFixed(1)}% · 최대 콤보 ${maxCombo} · MISS ${chart.filter(n=>n.result==='MISS').length}`,'다시 연주');
+  $('result-grade').textContent=resultGrade(accuracy);$('result-grade').hidden=false;$('result-grade').setAttribute('aria-label',`결과 등급 ${resultGrade(accuracy)}`);
 }
 function complete(note,grade){
   if(note.result&&note.result!=='HOLD')return;
@@ -90,8 +106,15 @@ function complete(note,grade){
   const value=grade==='PERFECT'?1:.65;
   total+=value;combo++;maxCombo=Math.max(combo,maxCombo);score+=Math.round(value*1000);hud();
   feedback(grade,grade==='PERFECT'?'#267b68':'#8550b5');
-  if(combo%10===0){$('combo-burst').textContent=`${combo} COMBO! ✦`;burstUntil=performance.now()+1000;}
-  for(let i=0;i<10;i++)particles.push({lane:note.lane,x:Math.random(),y:0,vx:(Math.random()-.5)*2,vy:Math.random()*2+1,life:1});
+  animateUI($('combo-meter'),[{transform:'scale(1)'},{transform:'scale(1.18)',offset:.35},{transform:'scale(1)'}],{duration:220});
+  const milestone=isComboMilestone(combo);
+  if(milestone){
+    $('combo-burst').textContent=`✦ ${combo} COMBO! ✦`;burstUntil=performance.now()+1400;
+    animateUI($('combo-burst'),[{transform:'translateY(-10px) scale(.7)',opacity:0},{transform:'scale(1.12)',opacity:1,offset:.25},{transform:'scale(1)',opacity:1}],{duration:600,easing:'ease-out'});
+  }
+  const count=milestone?64:14;
+  for(let i=0;i<count;i++)particles.push({lane:milestone?i%4:note.lane,x:Math.random(),y:0,vx:(Math.random()-.5)*(milestone?3:2),vy:Math.random()*3+1,life:1,shape:i%3});
+  particles=particles.slice(-200);
 }
 function hit(lane){
   if(state!=='playing')return;
@@ -141,7 +164,7 @@ buttons.forEach((button,lane)=>{
   button.onpointerup=button.onpointercancel=lift;
   button.onlostpointercapture=event=>{if(button.hasPointerCapture(event.pointerId))return;lift(event);};
 });
-function clearInput(){held.clear();pointers.clear();buttons.forEach(b=>b.classList.remove('active'));if(state==='playing')pause();}
+function clearInput(){stopPreview();held.clear();pointers.clear();buttons.forEach(b=>b.classList.remove('active'));if(state==='playing')pause();}
 window.addEventListener('blur',clearInput);document.addEventListener('visibilitychange',()=>{if(document.hidden)clearInput();});
 function schedule(t){
   while(autoIndex<song.notes.length&&song.notes[autoIndex].time<t+.15){
@@ -157,16 +180,17 @@ function schedule(t){
     if(beat%2===1)for(const pitch of song.chord)audio.tone(pitch,origin+at+song.beat/2,.1,.055,audio.music);
   }
 }
-let last=performance.now();function frame(ms){const dt=Math.min((ms-last)/1000,.05);last=ms;const w=canvas.clientWidth,h=canvas.clientHeight,dpr=Math.min(devicePixelRatio||1,2);if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);}ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);const laneWidth=w/4,line=h-18;
+let last=performance.now();function frame(ms){const dt=Math.min((ms-last)/1000,.05);last=ms;const w=canvas.clientWidth,h=canvas.clientHeight,dpr=Math.min(devicePixelRatio||1,2);if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);}ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);const laneWidth=w/4,line=h-18,travelSpeed=noteTravelSpeed(line,level);
 for(let i=0;i<4;i++){ctx.fillStyle=i%2?'#8550b506':'#267b6804';ctx.fillRect(i*laneWidth,0,laneWidth,h);ctx.strokeStyle='#8b6caa30';ctx.beginPath();ctx.moveTo(i*laneWidth,0);ctx.lineTo(i*laneWidth,h);ctx.stroke();const f=Math.max(0,1-(ms-flashes[i])/250);if(f){const g=ctx.createLinearGradient(0,h,0,h-150);g.addColorStop(0,colors[i]+Math.round(f*80).toString(16).padStart(2,'0'));g.addColorStop(1,'transparent');ctx.fillStyle=g;ctx.fillRect(i*laneWidth,h-150,laneWidth,150);}}
 ctx.strokeStyle='#267b6866';ctx.beginPath();ctx.moveTo(0,line);ctx.lineTo(w,line);ctx.stroke();
 if(song){const t=audio.ctx.currentTime-origin;if(state==='playing'){schedule(t);$('countdown').textContent=t<0?Math.ceil(-t):'';updateHolds(t-offset);for(const n of chart)if(!n.result&&t-offset-n.time>.18){complete(n,'MISS');}if(t>=song.duration)finish();$('progress').style.width=`${Math.max(0,Math.min(100,t/song.duration*100))}%`;}
-for(const n of chart){if(n.result&&n.result!=='HOLD')continue;const y=line-(n.time-(t-offset))*(song.speed||165);const tail=line-(n.time+(n.hold||0)-(t-offset))*(song.speed||165);if(y< -25||tail>h+30)continue;if(n.hold){ctx.fillStyle=colors[n.lane]+'55';ctx.fillRect(n.lane*laneWidth+laneWidth*.32,Math.max(-20,tail),laneWidth*.36,Math.max(0,Math.min(line,y)-Math.max(-20,tail)));}ctx.fillStyle=colors[n.lane];ctx.shadowColor=colors[n.lane];ctx.shadowBlur=13;ctx.fillRect(n.lane*laneWidth+12,(n.result==='HOLD'?line:y)-10,laneWidth-24,10);ctx.shadowBlur=0;ctx.fillStyle='#ffffffaa';ctx.fillRect(n.lane*laneWidth+12,y-10,laneWidth-24,2);}}
-if(state==='playing'){particles=particles.filter(p=>p.life>0);for(const p of particles){p.life-=dt*2;p.x+=p.vx*dt;p.y+=p.vy*dt*80;ctx.globalAlpha=Math.max(0,p.life);ctx.fillStyle=colors[p.lane];ctx.fillRect((p.lane+p.x)*laneWidth,line-p.y,3,3);}ctx.globalAlpha=1;}if(ms>judgeUntil)$('judge').textContent='';if(ms>burstUntil)$('combo-burst').textContent='';requestAnimationFrame(frame);}requestAnimationFrame(frame);
+for(const n of chart){if(n.result&&n.result!=='HOLD')continue;const y=line-(n.time-(t-offset))*travelSpeed;const tail=line-(n.time+(n.hold||0)-(t-offset))*travelSpeed;if(y< -25||tail>h+30)continue;if(n.hold){ctx.fillStyle=colors[n.lane]+'55';ctx.fillRect(n.lane*laneWidth+laneWidth*.32,Math.max(-20,tail),laneWidth*.36,Math.max(0,Math.min(line,y)-Math.max(-20,tail)));}ctx.fillStyle=colors[n.lane];ctx.shadowColor=colors[n.lane];ctx.shadowBlur=13;ctx.fillRect(n.lane*laneWidth+12,(n.result==='HOLD'?line:y)-10,laneWidth-24,10);ctx.shadowBlur=0;ctx.fillStyle='#ffffffaa';ctx.fillRect(n.lane*laneWidth+12,y-10,laneWidth-24,2);}}
+if(state==='playing'){particles=particles.filter(p=>p.life>0);for(const p of particles){p.life-=dt*2;p.x+=p.vx*dt;p.y+=p.vy*dt*80;ctx.globalAlpha=Math.max(0,p.life);ctx.fillStyle=colors[p.lane];ctx.font=p.shape===1?'bold 17px Arial':'bold 14px Arial';ctx.textAlign='center';ctx.fillText(p.shape===1?'♪':'✦',(p.lane+p.x)*laneWidth,line-p.y);}ctx.globalAlpha=1;}if(ms>judgeUntil)$('judge').textContent='';if(ms>burstUntil)$('combo-burst').textContent='';requestAnimationFrame(frame);}requestAnimationFrame(frame);
 
 
 function selectSong(id,animate=false){
   if(!SONGS.some(s=>s.id===id))return;
+  if(selectedSong!==id)stopPreview();
   selectedSong=id;
   const selected=makeSong(level,id),index=SONGS.findIndex(s=>s.id===id);
   $('song-title').textContent=selected.title;$('song-composer').textContent=selected.composer+' · Neon pop mix';
@@ -214,7 +238,7 @@ async function home(){
   $('countdown').textContent='';$('judge').textContent='';$('combo-burst').textContent='';$('progress').style.width='0%';
   $('song-picker').hidden=false;
   showOverlay('READY, SET, GROOVE!','오늘의 텐션을 올려봐요!','곡을 고르고 빛이 건반에 닿는 순간 눌러주세요.','LET’S PLAY');
-  await audio.stop();
+  await Promise.all([audio.stop(),stopPreview()]);
 }
 $('home').onclick=()=>runControl(home);renderSongs();
 const settingsSummary=document.querySelector('#settings-panel > summary'),allowSettingsTap=createTapGuard();
@@ -235,3 +259,29 @@ window.visualViewport?.addEventListener('resize',syncViewport);
 window.addEventListener('resize',syncViewport);
 window.addEventListener('orientationchange',syncViewport);
 syncSettings();
+
+
+async function stopPreview(){
+  previewToken++;previewRunning=false;
+  if(previewTimer!==null){clearTimeout(previewTimer);previewTimer=null;}
+  $('preview').textContent='▶ 미리듣기';$('preview').setAttribute('aria-pressed','false');
+  await previewAudio.stop();
+}
+async function togglePreview(){
+  if(previewRunning){await stopPreview();return;}
+  if(state!=='idle')return;
+  const token=++previewToken;
+  previewRunning=true;$('preview').textContent='■ 미리듣기 종료';$('preview').setAttribute('aria-pressed','true');
+  try{
+    await previewAudio.reset();
+    if(token!==previewToken||state!=='idle'){await previewAudio.stop();return;}
+    previewAudio.music.gain.value=$('music').value/100;
+    const track=makeSong('normal',selectedSong),start=previewAudio.ctx.currentTime+.08;
+    for(const note of track.notes)if(note.time<7.4&&!note.harmony)
+      previewAudio.tone(note.pitch,start+note.time,Math.min(note.duration,7.5-note.time),.3,previewAudio.music);
+    for(let beat=0;beat*track.beat<7.4;beat+=2)
+      previewAudio.tone(track.bass[beat%8],start+beat*track.beat,.25,.14,previewAudio.music);
+    previewTimer=setTimeout(()=>stopPreview(),8000);
+  }catch{await stopPreview();$('preview').textContent='▶ 다시 미리듣기';}
+}
+$('preview').onclick=()=>runControl(togglePreview);

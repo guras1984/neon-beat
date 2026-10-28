@@ -47,3 +47,11 @@ Center-CD activation animates its scale (disabled for reduced motion). Input hel
 ## Fixed-scale touch controls
 
 The viewport requests a fixed 1× scale. CSS disables pinch/double-tap zoom on the game surface; non-passive gesture and multi-touch-move handlers cover native gesture fallbacks. Settings remain pannable. Control actions share an async lock and a short repeat guard. Song, difficulty, and settings controls reject duplicate taps. Piano pointer/keyboard input has no debounce and retains multi-touch, fast repeats, and hold handling. Browser or operating-system accessibility overrides remain outside page control.
+
+
+## Performance feedback and preview
+
+- Shorter note field; Easy/Normal/Hard show approximately 2/1.65/1.25 seconds of travel regardless of field height. Input timing remains based on the audio clock.
+- The combo ring advances toward 10, 25, 50, 100, then each additional 50 hits. Milestones show larger text and star/music-note particles. MISS triggers a brief bottom-lane wave. Reduced-motion preferences suppress UI animation.
+- Results: S at 95% accuracy, A at 85%, B at 70%, otherwise C.
+- The selected song has an explicit 8-second preview button. Changing tracks, starting the game, returning home, or leaving the tab stops preview audio.
