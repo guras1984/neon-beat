@@ -1,28 +1,52 @@
 import fs from 'node:fs';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
-const songSource=fs.readFileSync(new URL('../js/song.js',import.meta.url),'utf8');
-const {makeSong,BEAT}=await import('data:text/javascript;base64,'+Buffer.from(songSource).toString('base64'));
-for(const level of ['easy','normal']){
-  const song=makeSong(level);
-  assert(song.duration>45&&song.duration<90);
-  assert(song.notes.every((n,i)=>n.lane>=0&&n.lane<4&&Number.isFinite(n.pitch)&&(!i||n.time>song.notes[i-1].time)));
+const load=async name=>import('data:text/javascript;base64,'+Buffer.from(fs.readFileSync(new URL('../js/'+name,import.meta.url),'utf8')).toString('base64'));
+const songs=await load('song.js'),rules=await load('rules.js');
+const {makeSong,SONGS}=songs;
+assert.equal(rules.carouselDistance(5,0,6),-1);
+assert.equal(rules.carouselDistance(0,5,6),1);
+assert.equal(rules.wrapIndex(-1,6),5);
+assert.equal(rules.timingGrade(.064),'PERFECT');
+assert.equal(rules.timingGrade(.12),'GOOD');
+assert.equal(rules.timingGrade(.2),null);
+for(const definition of SONGS){
+  for(const level of ['easy','normal']){
+    const song=makeSong(level,definition.id);
+    assert(song.duration>25&&song.duration<100);
+    assert(song.notes.every((n,i)=>Number.isFinite(n.pitch)&&n.lane>=0&&n.lane<4&&(!i||n.time>=song.notes[i-1].time)));
+    assert(song.notes.some(n=>n.hold>0),'Each track needs holds');
+    if(level==='normal')assert(song.notes.some(n=>n.harmony),'Normal needs chords');
+    const playable=song.notes.filter(n=>n.playable);
+    for(let i=0;i<playable.length;i++)for(let j=i+1;j<playable.length;j++){
+      const a=playable[i],b=playable[j];
+      if(a.lane===b.lane)assert(b.time>=a.time+(a.hold||0)-.001,'Conflicting lane notes');
+    }
+  }
 }
-assert(makeSong('normal').notes.filter(n=>n.playable).length>makeSong('easy').notes.filter(n=>n.playable).length);
-const elements=new Map();
-function element(){return {value:'55',textContent:'',style:{},classList:{add(){},remove(){},toggle(){}},getContext(){return {};}};}
-const document={getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id);},querySelectorAll(){return [element(),element(),element(),element()];},addEventListener(){}};
-const context=vm.createContext({document,window:{addEventListener(){}},performance:{now:()=>1000},localStorage:{getItem:()=>null,setItem(){}},requestAnimationFrame(){},makeSong,BEAT,AudioEngine:class{constructor(){this.ctx={currentTime:10};}tone(){}},console});
+const elements=new Map(),store=new Map();
+function element(){return {dataset:{},setAttribute(){},min:'-200',max:'200',value:'55',textContent:'',style:{setProperty(){}},classList:{add(){},remove(){},toggle(){}},getContext(){return {};}};}
+const document={body:element(),getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id);},querySelectorAll(){return [element(),element(),element(),element()];},addEventListener(){}};
+const context=vm.createContext({document,window:{addEventListener(){}},performance:{now:()=>1000},localStorage:{getItem:key=>store.get(key)??null,setItem:(key,value)=>store.set(key,String(value))},requestAnimationFrame(){},...songs,...rules,AudioEngine:class{constructor(){this.ctx={currentTime:10};}tone(){return {stop(){}};}async stop(){}},console});
 const source=fs.readFileSync(new URL('../js/game.js',import.meta.url),'utf8').replace(/^import .*;\n/gm,'');
 vm.runInContext(source,context);
 vm.runInContext(`
-state='playing';origin=10;chart=[{time:0,lane:0,pitch:60,duration:.2,result:null}];
-hit(0);
-if(score!==1000||combo!==1||chart[0].result!=='PERFECT')throw Error('Perfect hit failed');
-hit(0);
-if(score!==1000||judged!==1)throw Error('Duplicate scoring');
+offset=0;state='playing';origin=10;chart=[{time:0,lane:0,pitch:60,duration:.2,result:null}];
+hit(0);if(score!==1000||combo!==1||chart[0].result!=='PERFECT')throw Error('Perfect hit failed');
+hit(0);if(score!==1000||judged!==1)throw Error('Duplicate scoring');
 chart=[{time:.12,lane:1,pitch:62,duration:.2,result:null}];hit(1);
-if(chart[0].result!=='GOOD'||score!==1650)throw Error('Good timing failed');
+if(chart[0].result!=='GOOD'||score!==1650)throw Error('Good judgement failed');
 state='paused';hit(1);if(judged!==2)throw Error('Paused input accepted');
+state='playing';chart=[{time:0,lane:0,pitch:60,hold:.6,duration:.6,result:null}];held.add(0);hit(0);
+if(chart[0].result!=='HOLD'||judged!==2)throw Error('Hold head counted too soon');
+updateHolds(.61);if(chart[0].result!=='PERFECT'||judged!==3)throw Error('Hold completion failed');
+chart=[{time:0,lane:0,pitch:60,hold:1,duration:1,result:null}];hit(0);held.delete(0);release(0);
+if(chart[0].result!=='MISS'||combo!==0)throw Error('Early release must miss');
+chart=[{time:0,lane:0,pitch:60,result:null},{time:0,lane:2,pitch:64,result:null}];hit(0);hit(2);
+if(chart.some(n=>n.result!=='PERFECT'))throw Error('Chord input failed');
+state='idle';selectedSong='turkish';moveSong(-1);if(selectedSong!=='william')throw Error('Carousel previous wrap');
+moveSong(1);if(selectedSong!=='turkish')throw Error('Carousel next wrap');
+state='paused';song=makeSong();home();
+if(state!=='idle'||song!==null||chart.length||score!==0||!$('pause').disabled||$('song-picker').hidden)throw Error('Home reset failed');
 `,context);
-console.log('PASS: chart timing, lanes, difficulty, perfect/good judgement, duplicate input, paused input');
+console.log('PASS: 6 tracks × 2 levels, playable holds/chords, lane conflicts, timing, duplicate input, pause, hold completion/early release, simultaneous hits, carousel wrap, home reset');

@@ -1,14 +1,14 @@
 # Neon Beat
 
-Independent four-key browser piano rhythm game. Buildless HTML, CSS, and JavaScript modules; no packages or remote assets.
+Independent four-key browser piano rhythm game with six selectable short classical arrangements. Buildless HTML, CSS, and JavaScript modules; no packages or remote assets.
 
 ## Preview
 
 Run `python3 -m http.server 8000` in this folder, then visit http://localhost:8000. ES modules require HTTP; do not open index.html directly.
 
-Press Start to enable audio. Play with D/F/J/K or touch the four keys. Escape pauses; switching tabs pauses automatically. Music and keyboard volumes are separate. Positive timing offset permits later input. Best score is stored locally when browser storage is available.
+Choose a song, then press Start to enable audio. The header’s 처음으로 button stops audio and returns to song selection during countdown, play, pause, and results. Play with D/F/J/K or touch the four keys. Escape pauses; switching tabs pauses automatically. Music and keyboard volumes are separate. Positive timing offset permits later input. Best score is stored locally when browser storage is available.
 
-Easy plays roughly half the melody; omitted notes are performed automatically. Normal plays the full melody. Each judged note contributes equally to accuracy; PERFECT = 1, GOOD = 0.65, MISS = 0. No holds are included in this first prototype.
+Easy plays roughly half the melody; omitted notes are performed automatically. Normal plays the full melody. Each judged note contributes equally to accuracy; PERFECT = 1, GOOD = 0.65, MISS = 0. Long melody notes have tails: keep the key held until the tail reaches the line. Releasing more than 100 ms early yields MISS. Normal includes occasional two-key harmonies. Each hold is scored once on completion.
 
 ## Structure
 
@@ -19,3 +19,19 @@ Easy plays roughly half the melody; omitted notes are performed automatically. N
 - `CREDITS.md`: provenance and music rights information
 
 Repository was empty when work began; no existing deployment configuration was present. This source is suitable for static hosting. No automatic publishing workflow is enabled.
+
+
+## Updated selection and controls
+
+- Single-row 3D carousel: previous/next buttons, click neighboring cards, left/right keys while focused, and horizontal swipe. Last/first tracks wrap around.
+- Tap, hold, and Normal two-key notes. Pointer IDs are tracked independently for multitouch.
+- Every ten combo triggers a celebratory label. Reduced-motion preferences disable carousel transitions.
+- Music volume, keyboard volume, and timing offset persist locally. High scores are separated by song and difficulty.
+- The keyboard uses original additive synthesis, a subtle generated room response, and master compression. No external samples are used.
+- Run `node tests/game.test.mjs` for chart conflicts, timing, hold releases, chord input, carousel wrap, and home reset tests.
+
+## GitHub Pages
+
+Public game: https://guras1984.github.io/neon-beat/
+
+Pages publishes the main branch root. `.nojekyll` serves the buildless source directly. All asset and module URLs are relative, including the /neon-beat/ project path.
