@@ -35,7 +35,7 @@
   .song{max-width:49%;gap:0}.song h2{font-size:15px;margin:2px 0}.song p:not(.eyebrow){font-size:8px;margin:3px 0 4px}.pill{font-size:7px;padding:2px 4px}
   .song-picker{flex:0 0 auto;width:100%;margin:0}
   .picker-heading .eyebrow{font-size:7px;margin:0;letter-spacing:1px}.picker-heading>span{font-size:7px}
-  .song-grid{height:164px}.song-card{top:3px;height:156px;width:175px;gap:3px;padding:0;transform:translateX(calc(-50% + var(--slot)*151px)) scale(calc(1 - var(--distance)*.17)) rotateY(calc(var(--slot)*-18deg))}
+  .song-grid{height:164px}.song-card{top:3px;height:156px;width:175px;gap:3px;padding:0;transform:translateX(calc(-50% + var(--slot)*100px)) scale(calc(1 - var(--distance)*.17)) rotateY(calc(var(--slot)*-18deg))}
   .track-disc{width:100px;height:100px}.track-disc::after{width:19px;height:19px;border-width:4px}.track-disc .track-icon{font-size:20px}
   .song-card strong{font-size:13px}.song-card small{font-size:8px}.track-meta{font-size:8px}.track-number{top:3px;right:18px;font-size:7px}
   .carousel-arrow{height:44px;flex-basis:30px}.carousel-caption{font-size:7px;padding:0 3px}
@@ -66,7 +66,7 @@
   .shell{max-width:950px;display:grid;grid-template-columns:35% minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto;gap:6px 12px}
   header{grid-column:1/-1}.intro{display:none}.song-picker{grid-column:1;grid-row:2;align-self:center}
   .picker-heading>span,.carousel-caption>span{display:none}.carousel-caption{justify-content:center}
-  .song-grid{height:165px}.song-card{width:150px;height:158px;transform:translateX(calc(-50% + var(--slot)*130px)) scale(calc(1 - var(--distance)*.17)) rotateY(calc(var(--slot)*-18deg))}
+  .song-grid{height:165px}.song-card{width:150px;height:158px;transform:translateX(calc(-50% + var(--slot)*70px)) scale(calc(1 - var(--distance)*.17)) rotateY(calc(var(--slot)*-18deg))}
   .track-disc{width:100px;height:100px}.song-card strong{font-size:12px}.song-card small{display:none}
   .stage,.is-playing .stage{grid-column:2;grid-row:2/4;height:100%;min-height:0}
   .settings-panel{grid-column:1;grid-row:3}.is-playing .stage{grid-column:1/-1;grid-row:2}
