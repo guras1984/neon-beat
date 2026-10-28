@@ -1,6 +1,6 @@
-import {makeSong,SONGS} from './song.js?v=4';
-import {AudioEngine} from './audio.js?v=4';
-import {timingGrade,carouselDistance,wrapIndex,holdReleaseIsValid} from './rules.js?v=4';
+import {makeSong,SONGS} from './song.js?v=5';
+import {AudioEngine} from './audio.js?v=5';
+import {timingGrade,carouselDistance,wrapIndex,holdReleaseIsValid} from './rules.js?v=5';
 const $=id=>document.getElementById(id);
 const canvas=$('canvas'),ctx=canvas.getContext('2d'),audio=new AudioEngine();
 const buttons=[...document.querySelectorAll('[data-lane]')];
@@ -117,6 +117,9 @@ window.addEventListener('keyup',event=>{
   const lane=['KeyD','KeyF','KeyJ','KeyK'].indexOf(event.code);
   if(lane>=0){held.delete(lane);release(lane);}
 });
+// Suppress the native long-press menu without changing pointer/hold timing.
+$('keys').oncontextmenu=event=>event.preventDefault();
+$('keys').onselectstart=event=>event.preventDefault();
 buttons.forEach((button,lane)=>{
   button.onpointerdown=event=>{event.preventDefault();const down=isDown(lane);pointers.set(event.pointerId,lane);button.setPointerCapture(event.pointerId);button.classList.add('active');if(!down)hit(lane);};
   button.onpointerup=button.onpointercancel=button.onlostpointercapture=event=>{pointers.delete(event.pointerId);release(lane);};
