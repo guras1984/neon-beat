@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
 const load=async name=>import('data:text/javascript;base64,'+Buffer.from(fs.readFileSync(new URL('../js/'+name,import.meta.url),'utf8')).toString('base64'));
-const songs=await load('song.js'),rules=await load('rules.js');
+const songs=await load('song.js'),rules=await load('rules.js'),controls=await load('controls.js');
 const {makeSong,SONGS}=songs;
 assert.equal(rules.carouselDistance(5,0,6),-1);
 assert.equal(rules.carouselDistance(0,5,6),1);
@@ -33,7 +33,7 @@ for(const track of SONGS){
 const elements=new Map(),store=new Map();
 function element(){return {dataset:{},setAttribute(){},min:'-200',max:'200',value:'55',textContent:'',style:{setProperty(){}},classList:{add(){},remove(){},toggle(){}},getContext(){return {};}};}
 const document={body:element(),querySelector(){return null;},getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id);},querySelectorAll(){return [element(),element(),element(),element()];},addEventListener(){}};
-const context=vm.createContext({document,window:{addEventListener(){}},performance:{now:()=>1000},localStorage:{getItem:key=>store.get(key)??null,setItem:(key,value)=>store.set(key,String(value))},requestAnimationFrame(){},...songs,...rules,AudioEngine:class{constructor(){this.ctx={currentTime:10};}tone(){return {stop(){}};}async stop(){}},console});
+const context=vm.createContext({document,window:{addEventListener(){}},performance:{now:()=>1000},localStorage:{getItem:key=>store.get(key)??null,setItem:(key,value)=>store.set(key,String(value))},requestAnimationFrame(){},...songs,...rules,...controls,AudioEngine:class{constructor(){this.ctx={currentTime:10};}tone(){return {stop(){}};}async stop(){}},console});
 const source=fs.readFileSync(new URL('../js/game.js',import.meta.url),'utf8').replace(/^import .*;\n/gm,'');
 vm.runInContext(source,context);
 vm.runInContext(`
@@ -65,3 +65,33 @@ state='paused';song=makeSong();home();
 if(state!=='idle'||song!==null||chart.length||score!==0||!$('pause').disabled||$('song-picker').hidden)throw Error('Home reset failed');
 `,context);
 console.log('PASS: 11 tracks × 3 levels, playable holds/chords, lane conflicts, timing, duplicate input, pause, hold completion/early release, simultaneous hits, carousel wrap, home reset');
+
+
+// UI action locks must cover both pending async work and rapid repeated clicks.
+let now=0,completeAction,calls=0;
+const guard=controls.createActionGuard(300,()=>now);
+const pending=guard(()=>{calls++;return new Promise(resolve=>completeAction=resolve);});
+now=500;assert.equal(await guard(()=>calls++),false);
+completeAction();assert.equal(await pending,true);
+assert.equal(await guard(()=>calls++),true);
+now=600;assert.equal(await guard(()=>calls++),false);
+assert.equal(calls,2);
+now=900;await assert.rejects(guard(()=>{throw new Error('test failure');}));
+now=1300;assert.equal(await guard(()=>calls++),true,'Failure must release action lock');
+const allow=controls.createTapGuard(280,()=>now);
+assert(allow());assert(!allow());now+=281;assert(allow());
+
+const listeners=new Map(),keys=new Map();
+controls.installZoomLock({addEventListener:(name,fn,options)=>listeners.set(name,{fn,options})},{addEventListener:(name,fn)=>keys.set(name,fn)});
+let blocked=0;
+const event={cancelable:true,preventDefault(){blocked++;}};
+listeners.get('gesturestart').fn(event);
+listeners.get('touchmove').fn({...event,touches:[{},{}]});
+assert.equal(blocked,2);
+listeners.get('touchmove').fn({...event,touches:[{}]});assert.equal(blocked,2,'Single touch remains usable');
+listeners.get('touchend').fn({...event,timeStamp:100,touches:[],changedTouches:[{clientX:20,clientY:20}]});
+listeners.get('touchend').fn({...event,timeStamp:220,touches:[],changedTouches:[{clientX:22,clientY:21}]});assert.equal(blocked,3);
+assert.equal(listeners.get('touchmove').options.passive,false);
+keys.get('keydown')({...event,key:'d'});assert.equal(blocked,3,'Musical keys are not blocked');
+keys.get('keydown')({...event,key:'+',ctrlKey:true});assert.equal(blocked,4);
+console.log('PASS: pending-action lock, repeated clicks, lock recovery, menu debounce, pinch/double-tap guards, normal touch and musical keys');

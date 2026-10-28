@@ -1,6 +1,7 @@
-import {makeSong,SONGS} from './song.js?v=9';
-import {AudioEngine} from './audio.js?v=9';
-import {timingGrade,carouselDistance,wrapIndex,holdReleaseIsValid} from './rules.js?v=9';
+import {createActionGuard,createTapGuard,installZoomLock} from './controls.js?v=10';
+import {makeSong,SONGS} from './song.js?v=10';
+import {AudioEngine} from './audio.js?v=10';
+import {timingGrade,carouselDistance,wrapIndex,holdReleaseIsValid} from './rules.js?v=10';
 const $=id=>document.getElementById(id);
 const canvas=$('canvas'),ctx=canvas.getContext('2d'),audio=new AudioEngine();
 const buttons=[...document.querySelectorAll('[data-lane]')];
@@ -9,6 +10,9 @@ let selectedSong='turkish',level='easy',state='idle',song,chart=[];
 let score=0,combo=0,maxCombo=0,total=0,judged=0,origin=0,autoIndex=0,beatIndex=0,offset=0;
 let flashes=[0,0,0,0],particles=[],judgeUntil=0,burstUntil=0,starting=false,resumeGrace=0;
 const held=new Set(),pointers=new Map();
+const runControl=createActionGuard(),allowSongTap=createTapGuard(),allowDifficultyTap=createTapGuard();
+let cdAnimation=null,switchingPause=false;
+installZoomLock(document,window);
 function read(key,fallback){try{return localStorage.getItem(key)??fallback;}catch{return fallback;}}
 function write(key,value){try{localStorage.setItem(key,value);}catch{}}
 function bestKey(){return `neon-beat-best-${selectedSong}-${level}`;}
@@ -25,6 +29,7 @@ function volume(){
 }
 volume();
 document.querySelectorAll('[data-level]').forEach(button=>button.onclick=()=>{
+  if(!allowDifficultyTap())return;
   level=button.dataset.level;
   document.querySelectorAll('[data-level]').forEach(b=>b.classList.toggle('selected',b===button));
   refreshBest();
@@ -39,7 +44,7 @@ function showOverlay(label,title,copy,button){
   $('start').innerHTML=`${button} <span>↗</span>`;$('difficulty').hidden=state==='paused';$('overlay').hidden=false;
 }
 async function start(){
-  if(starting)return;
+  if(starting||!['idle','ended'].includes(state))return;
   starting=true;$('start').disabled=true;$('home').disabled=true;
   try{
     await audio.reset();volume();song=makeSong(level,selectedSong);
@@ -55,6 +60,9 @@ async function start(){
   }finally{starting=false;$('start').disabled=false;$('home').disabled=false;}
 }
 async function pause(){
+  if(switchingPause||starting)return;
+  switchingPause=true;
+  try{
   if(state==='playing'){
     state='paused';await audio.pause();if(state!=='paused')return;
     showOverlay('INTERMISSION','잠시 쉬어가기','긴 노트는 이어서 누르세요. 준비되면 계속!','계속 연주');
@@ -63,9 +71,11 @@ async function pause(){
     await audio.resume();if(state!=='paused')return;
     resumeGrace=audio.ctx.currentTime-origin-offset+.35;
     state='playing';$('overlay').hidden=true;$('pause').textContent='일시정지 Ⅱ';
+    if(document.hidden){state='paused';await audio.pause();if(state==='paused'){showOverlay('INTERMISSION','잠시 쉬어가기','준비되면 계속 연주하세요.','계속 연주');$('pause').textContent='계속 연주 ▷';}}
   }
+  }finally{switchingPause=false;}
 }
-$('start').onclick=()=>state==='paused'?pause():start();$('pause').onclick=pause;
+$('start').onclick=()=>runControl(()=>state==='paused'?pause():start());$('pause').onclick=()=>runControl(pause);
 function finish(){
   state='ended';document.body.classList.remove('is-playing');$('pause').disabled=true;
   if(score>Number(read(bestKey(),'0')))write(bestKey(),score);refreshBest();
@@ -116,7 +126,7 @@ function updateHolds(now){
 window.addEventListener('keydown',event=>{
   const lane=['KeyD','KeyF','KeyJ','KeyK'].indexOf(event.code);
   if(lane>=0){event.preventDefault();if(event.repeat||held.has(lane))return;held.add(lane);buttons[lane].classList.add('active');hit(lane);}
-  if(event.code==='Escape'&&!event.repeat)pause();
+  if(event.code==='Escape'&&!event.repeat)runControl(pause);
 });
 window.addEventListener('keyup',event=>{
   const lane=['KeyD','KeyF','KeyJ','KeyK'].indexOf(event.code);
@@ -171,7 +181,8 @@ function selectSong(id,animate=false){
     button.setAttribute('aria-hidden',String(Math.abs(distance)>1));button.tabIndex=Math.abs(distance)>1?-1:0;
   });
   if(animate&&!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches){const selected=document.querySelector('[data-song="'+id+'"]');
-    selected?.querySelector('.track-disc')?.animate?.([{transform:'scale(1)'},{transform:'scale(1.2)',offset:.45},{transform:'scale(1.06)'}],{duration:400,easing:'ease-out'});
+    cdAnimation?.cancel();
+    cdAnimation=selected?.querySelector('.track-disc')?.animate?.([{transform:'scale(1)'},{transform:'scale(1.2)',offset:.45},{transform:'scale(1.06)'}],{duration:400,easing:'ease-out'});
   }
   refreshBest();
 }
@@ -182,15 +193,15 @@ function moveSong(direction){
 let dragX=null,dragY=null,ignoreClickUntil=0;
 function renderSongs(){
   $('song-list').innerHTML=SONGS.map((s,i)=>`<button class="song-card" data-song="${s.id}" aria-pressed="${s.id===selectedSong}"><span class="track-number">${String(i+1).padStart(2,'0')}</span><span class="track-disc" style="--disc-hue:${i*45}deg" aria-hidden="true"><span class="track-icon">${s.icon}</span></span><strong>${s.title}</strong><small>${s.composer}</small><span class="track-meta">${s.bpm} BPM · ${Math.round(makeSong('easy',s.id).duration)}초</span></button>`).join('');
-  document.querySelectorAll('[data-song]').forEach(b=>b.onclick=()=>{if(performance.now()>ignoreClickUntil)selectSong(b.dataset.song,true);});
-  $('previous-song').onclick=()=>moveSong(-1);$('next-song').onclick=()=>moveSong(1);
+  document.querySelectorAll('[data-song]').forEach(b=>b.onclick=()=>{if(performance.now()>ignoreClickUntil&&allowSongTap())selectSong(b.dataset.song,true);});
+  $('previous-song').onclick=()=>{if(allowSongTap())moveSong(-1);};$('next-song').onclick=()=>{if(allowSongTap())moveSong(1);};
   const list=$('song-list');
-  list.onkeydown=event=>{if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();moveSong(event.key==='ArrowLeft'?-1:1);}};
+  list.onkeydown=event=>{if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();if(!allowSongTap())return;moveSong(event.key==='ArrowLeft'?-1:1);}};
   list.onpointerdown=event=>{dragX=event.clientX;dragY=event.clientY;};
   list.onpointerup=event=>{
     if(dragX===null)return;
     const dx=event.clientX-dragX,dy=event.clientY-dragY;dragX=null;
-    if(Math.abs(dx)>40&&Math.abs(dx)>Math.abs(dy)){ignoreClickUntil=performance.now()+350;moveSong(dx<0?1:-1);}
+    if(Math.abs(dx)>40&&Math.abs(dx)>Math.abs(dy)){ignoreClickUntil=performance.now()+350;if(allowSongTap())moveSong(dx<0?1:-1);}
   };
   list.onpointercancel=list.onpointerleave=()=>{dragX=null;};
   selectSong(selectedSong);
@@ -205,7 +216,9 @@ async function home(){
   showOverlay('READY, SET, GROOVE!','오늘의 텐션을 올려봐요!','곡을 고르고 빛이 건반에 닿는 순간 눌러주세요.','LET’S PLAY');
   await audio.stop();
 }
-$('home').onclick=home;renderSongs();
+$('home').onclick=()=>runControl(home);renderSongs();
+const settingsSummary=document.querySelector('#settings-panel > summary'),allowSettingsTap=createTapGuard();
+settingsSummary?.addEventListener('click',event=>{if(!allowSettingsTap())event.preventDefault();});
 
 
 // Use the actual visible viewport when browser chrome or the keyboard changes.

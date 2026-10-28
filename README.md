@@ -42,3 +42,8 @@ Pages publishes the main branch root. `.nojekyll` serves the buildless source di
 Easy: reduced melody with tap notes only. Normal: full melody with holds and occasional simultaneous harmony. Hard: faster scroll and extra simultaneous/offbeat harmony. Each track has a strictly increasing playable note count across the three modes.
 
 Center-CD activation animates its scale (disabled for reduced motion). Input help is inside the settings panel; D/F/J/K remain on the desktop keys. Holds are finalized at input time as well as in the render loop, and stale pointer-capture events cannot clear newly captured input. Each voice has its own release envelope.
+
+
+## Fixed-scale touch controls
+
+The viewport requests a fixed 1× scale. CSS disables pinch/double-tap zoom on the game surface; non-passive gesture and multi-touch-move handlers cover native gesture fallbacks. Settings remain pannable. Control actions share an async lock and a short repeat guard. Song, difficulty, and settings controls reject duplicate taps. Piano pointer/keyboard input has no debounce and retains multi-touch, fast repeats, and hold handling. Browser or operating-system accessibility overrides remain outside page control.
