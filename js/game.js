@@ -1,6 +1,6 @@
-import {makeSong,SONGS} from './song.js?v=6';
-import {AudioEngine} from './audio.js?v=6';
-import {timingGrade,carouselDistance,wrapIndex,holdReleaseIsValid} from './rules.js?v=6';
+import {makeSong,SONGS} from './song.js?v=7';
+import {AudioEngine} from './audio.js?v=7';
+import {timingGrade,carouselDistance,wrapIndex,holdReleaseIsValid} from './rules.js?v=7';
 const $=id=>document.getElementById(id);
 const canvas=$('canvas'),ctx=canvas.getContext('2d'),audio=new AudioEngine();
 const buttons=[...document.querySelectorAll('[data-lane]')];
@@ -48,7 +48,7 @@ async function start(){
     origin=audio.ctx.currentTime+3;state='playing';$('song-picker').hidden=true;
     $('overlay').hidden=true;$('pause').disabled=false;$('pause').textContent='일시정지 Ⅱ';
     $('judge').textContent='';$('combo-burst').textContent='';
-    document.body.classList.add('is-playing');
+    document.body.classList.add('is-playing');if(compactQuery?.matches)$('settings-panel').open=false;
   }catch{
     state='idle';song=null;$('song-picker').hidden=false;
     showOverlay('AUDIO','소리를 켜고 다시 시도해주세요','시작 버튼을 다시 눌러주세요.','다시 시작');
@@ -171,7 +171,7 @@ function moveSong(direction){
 }
 let dragX=null,dragY=null,ignoreClickUntil=0;
 function renderSongs(){
-  $('song-list').innerHTML=SONGS.map((s,i)=>`<button class="song-card" data-song="${s.id}" aria-pressed="${s.id===selectedSong}"><span class="track-number">0${i+1}</span><span class="track-icon">${s.icon}</span><strong>${s.title}</strong><small>${s.composer}</small><span class="track-meta">${s.bpm} BPM · ${Math.round(makeSong('easy',s.id).duration)}초</span></button>`).join('');
+  $('song-list').innerHTML=SONGS.map((s,i)=>`<button class="song-card" data-song="${s.id}" aria-pressed="${s.id===selectedSong}"><span class="track-number">0${i+1}</span><span class="track-disc" style="--disc-hue:${i*45}deg" aria-hidden="true"><span class="track-icon">${s.icon}</span></span><strong>${s.title}</strong><small>${s.composer}</small><span class="track-meta">${s.bpm} BPM · ${Math.round(makeSong('easy',s.id).duration)}초</span></button>`).join('');
   document.querySelectorAll('[data-song]').forEach(b=>b.onclick=()=>{if(performance.now()>ignoreClickUntil)selectSong(b.dataset.song);});
   $('previous-song').onclick=()=>moveSong(-1);$('next-song').onclick=()=>moveSong(1);
   const list=$('song-list');
@@ -196,3 +196,19 @@ async function home(){
   await audio.stop();
 }
 $('home').onclick=home;renderSongs();
+
+
+// Use the actual visible viewport when browser chrome or the keyboard changes.
+const compactQuery=window.matchMedia?.('(max-width:650px), (max-width:950px) and (max-height:500px) and (orientation:landscape)');
+function syncViewport(){
+  if(window.visualViewport)document.documentElement.style.setProperty('--app-height',Math.floor(window.visualViewport.height)+'px');
+}
+function syncSettings(){
+  if(compactQuery)$('settings-panel').open=!compactQuery.matches;
+  syncViewport();
+}
+compactQuery?.addEventListener('change',syncSettings);
+window.visualViewport?.addEventListener('resize',syncViewport);
+window.addEventListener('resize',syncViewport);
+window.addEventListener('orientationchange',syncViewport);
+syncSettings();
