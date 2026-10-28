@@ -1,6 +1,6 @@
 # Neon Beat
 
-Independent four-key browser piano rhythm game with six selectable short classical arrangements. Buildless HTML, CSS, and JavaScript modules; no packages or remote assets.
+Independent four-key browser piano rhythm game with eleven selectable short classical arrangements. Buildless HTML, CSS, and JavaScript modules; no packages or remote assets.
 
 ## Preview
 
@@ -35,3 +35,10 @@ Repository was empty when work began; no existing deployment configuration was p
 Public game: https://guras1984.github.io/neon-beat/
 
 Pages publishes the main branch root. `.nojekyll` serves the buildless source directly. All asset and module URLs are relative, including the /neon-beat/ project path.
+
+
+## Three difficulty modes
+
+Easy: reduced melody with tap notes only. Normal: full melody with holds and occasional simultaneous harmony. Hard: faster scroll and extra simultaneous/offbeat harmony. Each track has a strictly increasing playable note count across the three modes.
+
+Center-CD activation animates its scale (disabled for reduced motion). Input help is inside the settings panel; D/F/J/K remain on the desktop keys. Holds are finalized at input time as well as in the render loop, and stale pointer-capture events cannot clear newly captured input. Each voice has its own release envelope.

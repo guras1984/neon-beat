@@ -80,3 +80,6 @@
   body:not(.is-playing) .stage .piano-keys,
   body:not(.is-playing) .stage .stage-footer{display:none}
 }
+.song-card.selected .track-disc{transform:scale(1.06)}
+.settings .input-guide{font-size:11px;line-height:1.7;color:#795b88}
+@media(max-width:650px){#difficulty{gap:6px}#difficulty button{padding:6px 12px}.settings .input-guide{font-size:10px}}

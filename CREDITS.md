@@ -20,3 +20,14 @@ Neon Beat is an independent game and is not affiliated with KONAMI or Nostalgia.
 - Gioachino Rossini (1792–1868): William Tell Overture, finale.
 
 Each track is a short simplified theme arranged and sequenced for this game, with repeated phrases and newly synthesized dance accompaniment. These are not full performances or exact reproductions of any modern arrangement. The compositions above have expired copyright protection in South Korea; no third-party recording, MIDI, sample, or modern score edition is bundled.
+
+
+## Additional five theme arrangements
+
+- Ludwig van Beethoven (1770–1827): Für Elise, WoO 59.
+- Johann Pachelbel (1653–1706): Canon in D, theme transposed to C.
+- Christian Petzold (1677–1733): Minuet in G, BWV Anh.114 (historically attributed to J. S. Bach).
+- Wolfgang Amadeus Mozart (1756–1791): Eine kleine Nachtmusik, K.525, opening theme.
+- Georges Bizet (1838–1875): Carmen, Habanera, opening theme.
+
+These are short, simplified game arrangements with original accompaniment and repeats, not complete concert transcriptions. No third-party MIDI, recording, sample, or modern score edition is included.

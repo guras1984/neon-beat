@@ -8,8 +8,8 @@ export class AudioEngine {
     this.master=c.createGain();
     this.master.gain.value=.65;
     const compressor=c.createDynamicsCompressor();
-    compressor.threshold.value=-16;
-    compressor.ratio.value=5;
+    compressor.threshold.value=-12;
+    compressor.ratio.value=2.5;compressor.release.value=.18;
     this.master.connect(compressor);compressor.connect(c.destination);
     this.music=c.createGain();this.effects=c.createGain();
     this.music.connect(this.master);this.effects.connect(this.master);
@@ -24,29 +24,32 @@ export class AudioEngine {
     const wet=c.createGain();wet.gain.value=.1;
     this.effects.connect(this.room);this.room.connect(wet);wet.connect(this.master);
   }
-  tone(pitch,when,duration=.3,volume=.35,bus=this.effects) {
+  tone(pitch,when,duration=.3,volume=.35,bus=this.effects,sustain=false) {
     const c=this.ctx;
     if(!c || c.state==='closed')return;
     const t=Math.max(c.currentTime,when),g=c.createGain(),oscillators=[];
     g.gain.setValueAtTime(0,t);
-    g.gain.linearRampToValueAtTime(volume,t+.005);
+    g.gain.linearRampToValueAtTime(volume,t+.009);
     g.gain.exponentialRampToValueAtTime(Math.max(.001,volume*.28),t+.12);
-    g.gain.exponentialRampToValueAtTime(.001,t+Math.max(.15,duration)+.2);
-    g.connect(bus);
+    if(sustain)g.gain.setValueAtTime(Math.max(.001,volume*.28),t+Math.max(.13,duration));
+    g.gain.exponentialRampToValueAtTime(.001,t+Math.max(.15,duration)+.32);
+    const warmth=c.createBiquadFilter();warmth.type='lowpass';warmth.frequency.value=5200;warmth.Q.value=.3;g.connect(warmth);warmth.connect(bus);
     let remaining=4;
-    for(const [ratio,weight] of [[1,1],[2.002,.28],[3.005,.09],[4.01,.035]]) {
+    for(const [ratio,weight] of [[1,1],[2.001,.2],[3.002,.055],[4.004,.018]]) {
       const oscillator=c.createOscillator(),partial=c.createGain();
       oscillator.type='sine';oscillator.frequency.value=440*2**((pitch-69)/12)*ratio;
       partial.gain.value=weight;oscillator.connect(partial);partial.connect(g);
-      oscillator.start(t);oscillator.stop(t+Math.max(.15,duration)+.25);
-      oscillator.onended=()=>{oscillator.disconnect();partial.disconnect();if(--remaining===0)g.disconnect();};
+      oscillator.start(t);oscillator.stop(t+Math.max(.15,duration)+.38);
+      oscillator.onended=()=>{oscillator.disconnect();partial.disconnect();if(--remaining===0){g.disconnect();warmth.disconnect();}};
       oscillators.push(oscillator);
     }
+    let released=false;
     return {stop:()=>{
-      if(c.state==='closed')return;
+      if(c.state==='closed'||released)return;released=true;
       const now=c.currentTime;
-      g.gain.cancelScheduledValues(now);g.gain.setTargetAtTime(.001,now,.015);
-      for(const oscillator of oscillators)try{oscillator.stop(now+.08);}catch{}
+      if(g.gain.cancelAndHoldAtTime)g.gain.cancelAndHoldAtTime(now);else{g.gain.cancelScheduledValues(now);g.gain.setValueAtTime(volume*.18,now);}
+      g.gain.setTargetAtTime(.001,now,.03);
+      for(const oscillator of oscillators)try{oscillator.stop(now+.15);}catch{}
     }};
   }
   drum(when,accent) {

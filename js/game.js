@@ -1,6 +1,6 @@
-import {makeSong,SONGS} from './song.js?v=7';
-import {AudioEngine} from './audio.js?v=7';
-import {timingGrade,carouselDistance,wrapIndex,holdReleaseIsValid} from './rules.js?v=7';
+import {makeSong,SONGS} from './song.js?v=9';
+import {AudioEngine} from './audio.js?v=9';
+import {timingGrade,carouselDistance,wrapIndex,holdReleaseIsValid} from './rules.js?v=9';
 const $=id=>document.getElementById(id);
 const canvas=$('canvas'),ctx=canvas.getContext('2d'),audio=new AudioEngine();
 const buttons=[...document.querySelectorAll('[data-lane]')];
@@ -87,11 +87,16 @@ function hit(lane){
   if(state!=='playing')return;
   const t=audio.ctx.currentTime-origin;if(t<0)return;
   const now=t-offset;flashes[lane]=performance.now();
-  if(chart.some(n=>n.lane===lane&&n.result==='HOLD'))return;
+  // Finalize the previous tail at input time, before looking up the next head.
+  // A new press can arrive before the animation frame that completes the hold.
+  for(const active of chart)if(active.lane===lane&&active.result==='HOLD'){
+    if(holdReleaseIsValid(now,active.time+active.hold))complete(active,active.headGrade);
+    else return;
+  }
   const note=chart.find(n=>n.lane===lane&&!n.result&&timingGrade(n.time-now));
   if(!note){audio.tone(48+lane*4,audio.ctx.currentTime,.08,.045);return;}
   const grade=timingGrade(note.time-now);
-  if(note.hold){note.result='HOLD';note.headGrade=grade;note.voice=audio.tone(note.pitch,audio.ctx.currentTime,note.hold,.45);feedback('HOLD','#96621a');}
+  if(note.hold){note.result='HOLD';note.headGrade=grade;note.voice=audio.tone(note.pitch,audio.ctx.currentTime,note.hold,.38,audio.effects,true);feedback('HOLD','#96621a');}
   else{audio.tone(note.pitch,audio.ctx.currentTime,note.duration,.45);complete(note,grade);}
 }
 function isDown(lane){return held.has(lane)||[...pointers.values()].includes(lane);}
@@ -121,8 +126,10 @@ window.addEventListener('keyup',event=>{
 $('keys').oncontextmenu=event=>event.preventDefault();
 $('keys').onselectstart=event=>event.preventDefault();
 buttons.forEach((button,lane)=>{
-  button.onpointerdown=event=>{event.preventDefault();const down=isDown(lane);pointers.set(event.pointerId,lane);button.setPointerCapture(event.pointerId);button.classList.add('active');if(!down)hit(lane);};
-  button.onpointerup=button.onpointercancel=button.onlostpointercapture=event=>{pointers.delete(event.pointerId);release(lane);};
+  button.onpointerdown=event=>{event.preventDefault();const down=held.has(lane)||[...pointers].some(([id,value])=>id!==event.pointerId&&value===lane);pointers.set(event.pointerId,lane);button.setPointerCapture(event.pointerId);button.classList.add('active');if(!down)hit(lane);};
+  const lift=event=>{if(pointers.get(event.pointerId)!==lane)return;pointers.delete(event.pointerId);release(lane);};
+  button.onpointerup=button.onpointercancel=lift;
+  button.onlostpointercapture=event=>{if(button.hasPointerCapture(event.pointerId))return;lift(event);};
 });
 function clearInput(){held.clear();pointers.clear();buttons.forEach(b=>b.classList.remove('active'));if(state==='playing')pause();}
 window.addEventListener('blur',clearInput);document.addEventListener('visibilitychange',()=>{if(document.hidden)clearInput();});
@@ -144,11 +151,11 @@ let last=performance.now();function frame(ms){const dt=Math.min((ms-last)/1000,.
 for(let i=0;i<4;i++){ctx.fillStyle=i%2?'#8550b506':'#267b6804';ctx.fillRect(i*laneWidth,0,laneWidth,h);ctx.strokeStyle='#8b6caa30';ctx.beginPath();ctx.moveTo(i*laneWidth,0);ctx.lineTo(i*laneWidth,h);ctx.stroke();const f=Math.max(0,1-(ms-flashes[i])/250);if(f){const g=ctx.createLinearGradient(0,h,0,h-150);g.addColorStop(0,colors[i]+Math.round(f*80).toString(16).padStart(2,'0'));g.addColorStop(1,'transparent');ctx.fillStyle=g;ctx.fillRect(i*laneWidth,h-150,laneWidth,150);}}
 ctx.strokeStyle='#267b6866';ctx.beginPath();ctx.moveTo(0,line);ctx.lineTo(w,line);ctx.stroke();
 if(song){const t=audio.ctx.currentTime-origin;if(state==='playing'){schedule(t);$('countdown').textContent=t<0?Math.ceil(-t):'';updateHolds(t-offset);for(const n of chart)if(!n.result&&t-offset-n.time>.18){complete(n,'MISS');}if(t>=song.duration)finish();$('progress').style.width=`${Math.max(0,Math.min(100,t/song.duration*100))}%`;}
-for(const n of chart){if(n.result&&n.result!=='HOLD')continue;const y=line-(n.time-(t-offset))*165;const tail=line-(n.time+(n.hold||0)-(t-offset))*165;if(y< -25||tail>h+30)continue;if(n.hold){ctx.fillStyle=colors[n.lane]+'55';ctx.fillRect(n.lane*laneWidth+laneWidth*.32,Math.max(-20,tail),laneWidth*.36,Math.max(0,Math.min(line,y)-Math.max(-20,tail)));}ctx.fillStyle=colors[n.lane];ctx.shadowColor=colors[n.lane];ctx.shadowBlur=13;ctx.fillRect(n.lane*laneWidth+12,(n.result==='HOLD'?line:y)-10,laneWidth-24,10);ctx.shadowBlur=0;ctx.fillStyle='#ffffffaa';ctx.fillRect(n.lane*laneWidth+12,y-10,laneWidth-24,2);}}
+for(const n of chart){if(n.result&&n.result!=='HOLD')continue;const y=line-(n.time-(t-offset))*(song.speed||165);const tail=line-(n.time+(n.hold||0)-(t-offset))*(song.speed||165);if(y< -25||tail>h+30)continue;if(n.hold){ctx.fillStyle=colors[n.lane]+'55';ctx.fillRect(n.lane*laneWidth+laneWidth*.32,Math.max(-20,tail),laneWidth*.36,Math.max(0,Math.min(line,y)-Math.max(-20,tail)));}ctx.fillStyle=colors[n.lane];ctx.shadowColor=colors[n.lane];ctx.shadowBlur=13;ctx.fillRect(n.lane*laneWidth+12,(n.result==='HOLD'?line:y)-10,laneWidth-24,10);ctx.shadowBlur=0;ctx.fillStyle='#ffffffaa';ctx.fillRect(n.lane*laneWidth+12,y-10,laneWidth-24,2);}}
 if(state==='playing'){particles=particles.filter(p=>p.life>0);for(const p of particles){p.life-=dt*2;p.x+=p.vx*dt;p.y+=p.vy*dt*80;ctx.globalAlpha=Math.max(0,p.life);ctx.fillStyle=colors[p.lane];ctx.fillRect((p.lane+p.x)*laneWidth,line-p.y,3,3);}ctx.globalAlpha=1;}if(ms>judgeUntil)$('judge').textContent='';if(ms>burstUntil)$('combo-burst').textContent='';requestAnimationFrame(frame);}requestAnimationFrame(frame);
 
 
-function selectSong(id){
+function selectSong(id,animate=false){
   if(!SONGS.some(s=>s.id===id))return;
   selectedSong=id;
   const selected=makeSong(level,id),index=SONGS.findIndex(s=>s.id===id);
@@ -163,16 +170,19 @@ function selectSong(id){
     button.style.zIndex=String(10-Math.abs(distance));
     button.setAttribute('aria-hidden',String(Math.abs(distance)>1));button.tabIndex=Math.abs(distance)>1?-1:0;
   });
+  if(animate&&!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches){const selected=document.querySelector('[data-song="'+id+'"]');
+    selected?.querySelector('.track-disc')?.animate?.([{transform:'scale(1)'},{transform:'scale(1.2)',offset:.45},{transform:'scale(1.06)'}],{duration:400,easing:'ease-out'});
+  }
   refreshBest();
 }
 function moveSong(direction){
   if(state!=='idle')return;
-  selectSong(SONGS[wrapIndex(SONGS.findIndex(s=>s.id===selectedSong)+direction,SONGS.length)].id);
+  selectSong(SONGS[wrapIndex(SONGS.findIndex(s=>s.id===selectedSong)+direction,SONGS.length)].id,true);
 }
 let dragX=null,dragY=null,ignoreClickUntil=0;
 function renderSongs(){
   $('song-list').innerHTML=SONGS.map((s,i)=>`<button class="song-card" data-song="${s.id}" aria-pressed="${s.id===selectedSong}"><span class="track-number">0${i+1}</span><span class="track-disc" style="--disc-hue:${i*45}deg" aria-hidden="true"><span class="track-icon">${s.icon}</span></span><strong>${s.title}</strong><small>${s.composer}</small><span class="track-meta">${s.bpm} BPM · ${Math.round(makeSong('easy',s.id).duration)}초</span></button>`).join('');
-  document.querySelectorAll('[data-song]').forEach(b=>b.onclick=()=>{if(performance.now()>ignoreClickUntil)selectSong(b.dataset.song);});
+  document.querySelectorAll('[data-song]').forEach(b=>b.onclick=()=>{if(performance.now()>ignoreClickUntil)selectSong(b.dataset.song,true);});
   $('previous-song').onclick=()=>moveSong(-1);$('next-song').onclick=()=>moveSong(1);
   const list=$('song-list');
   list.onkeydown=event=>{if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();moveSong(event.key==='ArrowLeft'?-1:1);}};
