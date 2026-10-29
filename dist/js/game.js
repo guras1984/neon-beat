@@ -1,11 +1,12 @@
-import {createActionGuard,createTapGuard,installZoomLock} from './controls.js?v=11';
-import {makeSong,SONGS} from './song.js?v=11';
-import {AudioEngine} from './audio.js?v=11';
-import {timingGrade,carouselDistance,wrapIndex,holdReleaseIsValid,resultGrade,comboProgress,isComboMilestone,noteTravelSpeed} from './rules.js?v=11';
+import {createActionGuard,createTapGuard,installZoomLock} from './controls.js?v=12';
+import {makeSong,SONGS} from './song.js?v=12';
+import {AudioEngine} from './audio.js?v=12';
+import {timingGrade,carouselDistance,wrapIndex,holdReleaseIsValid,resultGrade,comboProgress,isComboMilestone,noteTravelSpeed,comboTier,performanceSummary,dragTarget} from './rules.js?v=12';
 const $=id=>document.getElementById(id);
 const canvas=$('canvas'),ctx=canvas.getContext('2d'),audio=new AudioEngine(),previewAudio=new AudioEngine();
 const buttons=[...document.querySelectorAll('[data-lane]')];
 const colors=['#c44885','#2684af','#8651b5','#be8619'];
+let wrongPresses=0;
 let selectedSong='turkish',level='easy',state='idle',song,chart=[];
 let score=0,combo=0,maxCombo=0,total=0,judged=0,origin=0,autoIndex=0,beatIndex=0,offset=0;
 let flashes=[0,0,0,0],particles=[],judgeUntil=0,burstUntil=0,starting=false,resumeGrace=0;
@@ -15,7 +16,7 @@ let cdAnimation=null,switchingPause=false,previewToken=0,previewTimer=null,previ
 installZoomLock(document,window);
 function read(key,fallback){try{return localStorage.getItem(key)??fallback;}catch{return fallback;}}
 function write(key,value){try{localStorage.setItem(key,value);}catch{}}
-function bestKey(){return `neon-beat-best-${selectedSong}-${level}`;}
+function bestKey(){return `neon-beat-best-v2-${selectedSong}-${level}`;}
 function refreshBest(){$('best').textContent=read(bestKey(),'0');}
 for(const id of ['music','effects','offset']) {
   const input=$(id),saved=Number(read('neon-beat-'+id,input.value));
@@ -37,7 +38,9 @@ document.querySelectorAll('[data-level]').forEach(button=>button.onclick=()=>{
 });
 function hud(){
   $('score').textContent=String(score).padStart(6,'0');$('combo').textContent=combo;
-  $('accuracy').textContent=judged?`${(total/judged*100).toFixed(1)}%`:'—';
+  $('accuracy').textContent=judged+wrongPresses?`${(total/(judged+wrongPresses)*100).toFixed(1)}%`:'—';
+  const tier=comboTier(combo);$('combo-tier').textContent=tier.name;$('score-rate').textContent=`×${tier.multiplier.toFixed(1)}`;
+  document.body.dataset.comboTier=tier.id;
   const progress=comboProgress(combo),meter=$('combo-meter');
   meter.style.setProperty('--combo-fill',`${progress.fill*360}deg`);
   meter.setAttribute('aria-valuenow',String(combo));meter.setAttribute('aria-valuemax',String(progress.next));
@@ -54,7 +57,7 @@ function feedback(text,color){
   if(text==='MISS')animateUI($('lane-feedback'),[{opacity:.7,transform:'scaleX(.85)'},{opacity:0,transform:'scaleX(1.1)'}],{duration:550,easing:'ease-out'});
 }
 function showOverlay(label,title,copy,button){
-  $('result-grade').hidden=true;
+  $('result-grade').hidden=true;$('result-details').hidden=true;
   $('overlay-label').textContent=label;$('overlay-title').textContent=title;$('overlay-copy').textContent=copy;
   $('start').innerHTML=`${button} <span>↗</span>`;$('difficulty').hidden=state==='paused';$('overlay').hidden=false;
 }
@@ -64,7 +67,7 @@ async function start(){
   try{
     await stopPreview();await audio.reset();volume();song=makeSong(level,selectedSong);
     chart=song.notes.filter(n=>n.playable).map(n=>({...n,result:null}));
-    score=combo=maxCombo=total=judged=autoIndex=beatIndex=0;particles=[];held.clear();pointers.clear();hud();
+    score=combo=maxCombo=total=judged=autoIndex=beatIndex=wrongPresses=0;particles=[];held.clear();pointers.clear();hud();
     origin=audio.ctx.currentTime+3;state='playing';$('song-picker').hidden=true;
     $('overlay').hidden=true;$('pause').disabled=false;$('pause').textContent='일시정지 Ⅱ';
     $('judge').textContent='';$('combo-burst').textContent='';
@@ -94,22 +97,31 @@ $('start').onclick=()=>runControl(()=>state==='paused'?pause():start());$('pause
 function finish(){
   state='ended';document.body.classList.remove('is-playing');$('pause').disabled=true;
   if(score>Number(read(bestKey(),'0')))write(bestKey(),score);refreshBest();
-  const accuracy=judged?total/judged:0;
-  showOverlay('PERFORMANCE COMPLETE',accuracy>.9?'무대를 찢었어요!':'좋아요, 한 판 더?',
-    `점수 ${score.toLocaleString()} · 정확도 ${(accuracy*100).toFixed(1)}% · 최대 콤보 ${maxCombo} · MISS ${chart.filter(n=>n.result==='MISS').length}`,'다시 연주');
-  $('result-grade').textContent=resultGrade(accuracy);$('result-grade').hidden=false;$('result-grade').setAttribute('aria-label',`결과 등급 ${resultGrade(accuracy)}`);
+  const perfect=chart.filter(n=>n.result==='PERFECT').length,good=chart.filter(n=>n.result==='GOOD').length,miss=chart.filter(n=>n.result==='MISS').length;
+  const summary=performanceSummary({perfect,good,miss,wrong:wrongPresses,maxCombo});
+  showOverlay('PERFORMANCE COMPLETE',summary.fullCombo?'FULL COMBO!':summary.overall>=85?'멋진 무대였어요!':'한 곡을 완성했어요.',summary.evaluation,'다시 연주');
+  $('result-grade').textContent=summary.grade;$('result-grade').hidden=false;
+  $('result-grade').setAttribute('aria-label',`종합 등급 ${summary.grade}`);
+  $('result-details').innerHTML=`<div class="overall-score"><strong>${summary.overall.toFixed(1)}</strong><span>/ 100 종합점수</span></div><div class="result-grid"><span>총점 <b>${score.toLocaleString()}</b></span><span>정확도 <b>${(summary.accuracy*100).toFixed(1)}%</b></span><span>최대 콤보 <b>${maxCombo}</b></span><span>최고 단계 <b>${comboTier(maxCombo).name}</b></span><span>PERFECT <b>${perfect}</b></span><span>GOOD <b>${good}</b></span><span>노트 MISS <b>${miss}</b></span><span>잘못 누름 <b>${wrongPresses}</b></span></div><p class="score-breakdown">정확도 ${summary.accuracyPoints.toFixed(1)}/70 · 콤보 ${summary.comboPoints.toFixed(1)}/20 · 실수 억제 ${summary.cleanPoints.toFixed(1)}/10</p>`;
+  $('result-details').hidden=false;
 }
+function wrongHit(lane){
+  wrongPresses++;combo=0;$('combo-burst').textContent='';burstUntil=0;
+  feedback('MISS','#bc476e');hud();
+  // No note is consumed; missed notes and extra presses stay separate in results.
+}
+
 function complete(note,grade){
   if(note.result&&note.result!=='HOLD')return;
   note.result=grade;note.voice?.stop();judged++;
-  if(grade==='MISS'){combo=0;feedback('MISS','#bc476e');hud();return;}
+  if(grade==='MISS'){combo=0;$('combo-burst').textContent='';burstUntil=0;feedback('MISS','#bc476e');hud();return;}
   const value=grade==='PERFECT'?1:.65;
-  total+=value;combo++;maxCombo=Math.max(combo,maxCombo);score+=Math.round(value*1000);hud();
+  total+=value;combo++;maxCombo=Math.max(combo,maxCombo);score+=Math.round(value*1000*comboTier(combo).multiplier);hud();
   feedback(grade,grade==='PERFECT'?'#267b68':'#8550b5');
   animateUI($('combo-meter'),[{transform:'scale(1)'},{transform:'scale(1.18)',offset:.35},{transform:'scale(1)'}],{duration:220});
   const milestone=isComboMilestone(combo);
   if(milestone){
-    $('combo-burst').textContent=`✦ ${combo} COMBO! ✦`;burstUntil=performance.now()+1400;
+    $('combo-burst').textContent=`${comboTier(combo).name} ${combo} COMBO!`;burstUntil=performance.now()+1400;
     animateUI($('combo-burst'),[{transform:'translateY(-10px) scale(.7)',opacity:0},{transform:'scale(1.12)',opacity:1,offset:.25},{transform:'scale(1)',opacity:1}],{duration:600,easing:'ease-out'});
   }
   const count=milestone?64:14;
@@ -127,7 +139,7 @@ function hit(lane){
     else return;
   }
   const note=chart.find(n=>n.lane===lane&&!n.result&&timingGrade(n.time-now));
-  if(!note){audio.tone(48+lane*4,audio.ctx.currentTime,.08,.045);return;}
+  if(!note){wrongHit(lane);return;}
   const grade=timingGrade(note.time-now);
   if(note.hold){note.result='HOLD';note.headGrade=grade;note.voice=audio.tone(note.pitch,audio.ctx.currentTime,note.hold,.38,audio.effects,true);feedback('HOLD','#96621a');}
   else{audio.tone(note.pitch,audio.ctx.currentTime,note.duration,.45);complete(note,grade);}
@@ -214,27 +226,49 @@ function moveSong(direction){
   if(state!=='idle')return;
   selectSong(SONGS[wrapIndex(SONGS.findIndex(s=>s.id===selectedSong)+direction,SONGS.length)].id,true);
 }
-let dragX=null,dragY=null,ignoreClickUntil=0;
+let dragging=null,ignoreClickUntil=0;
 function renderSongs(){
   $('song-list').innerHTML=SONGS.map((s,i)=>`<button class="song-card" data-song="${s.id}" aria-pressed="${s.id===selectedSong}"><span class="track-number">${String(i+1).padStart(2,'0')}</span><span class="track-disc" style="--disc-hue:${i*45}deg" aria-hidden="true"><span class="track-icon">${s.icon}</span></span><strong>${s.title}</strong><small>${s.composer}</small><span class="track-meta">${s.bpm} BPM · ${Math.round(makeSong('easy',s.id).duration)}초</span></button>`).join('');
   document.querySelectorAll('[data-song]').forEach(b=>b.onclick=()=>{if(performance.now()>ignoreClickUntil&&allowSongTap())selectSong(b.dataset.song,true);});
-  $('previous-song').onclick=()=>{if(allowSongTap())moveSong(-1);};$('next-song').onclick=()=>{if(allowSongTap())moveSong(1);};
   const list=$('song-list');
   list.onkeydown=event=>{if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();if(!allowSongTap())return;moveSong(event.key==='ArrowLeft'?-1:1);}};
-  list.onpointerdown=event=>{dragX=event.clientX;dragY=event.clientY;};
-  list.onpointerup=event=>{
-    if(dragX===null)return;
-    const dx=event.clientX-dragX,dy=event.clientY-dragY;dragX=null;
-    if(Math.abs(dx)>40&&Math.abs(dx)>Math.abs(dy)){ignoreClickUntil=performance.now()+350;if(allowSongTap())moveSong(dx<0?1:-1);}
+  list.ondragstart=event=>event.preventDefault();
+  const resetDrag=()=>{dragging=null;list.classList.remove('dragging');list.style.setProperty('--drag-offset','0px');};
+  list.onpointerdown=event=>{
+    if(state!=='idle'||(event.button!==undefined&&event.button!==0)||dragging)return;
+    const target=event.target.closest?.('[data-song]');
+    dragging={id:event.pointerId,x:event.clientX,y:event.clientY,dx:0,moved:false,target:target?.dataset.song,
+      start:SONGS.findIndex(s=>s.id===selectedSong),spacing:Math.max(80,Math.min(210,list.clientWidth*.32))};
+    list.setPointerCapture(event.pointerId);
   };
-  list.onpointercancel=list.onpointerleave=()=>{dragX=null;};
+  list.onpointermove=event=>{
+    if(!dragging||dragging.id!==event.pointerId)return;
+    const dx=event.clientX-dragging.x,dy=event.clientY-dragging.y;
+    if(!dragging.moved&&Math.abs(dy)>12&&Math.abs(dy)>Math.abs(dx)){resetDrag();return;}
+    if(Math.abs(dx)>7)dragging.moved=true;
+    if(dragging.moved){
+      dragging.dx=dx;list.classList.add('dragging');
+      list.style.setProperty('--drag-offset',`${Math.max(-dragging.spacing,Math.min(dragging.spacing,dx))}px`);
+    }
+  };
+  list.onpointerup=event=>{
+    if(!dragging||dragging.id!==event.pointerId)return;
+    const drag=dragging;resetDrag();ignoreClickUntil=performance.now()+350;
+    if(drag.moved){
+      const target=dragTarget(drag.start,event.clientX-drag.x,drag.spacing,SONGS.length);
+      if(target!==drag.start&&allowSongTap())selectSong(SONGS[target].id,true);
+    }else if(drag.target&&allowSongTap())selectSong(drag.target,true);
+  };
+  list.onpointercancel=event=>{if(dragging?.id===event.pointerId)resetDrag();};
+  list.onlostpointercapture=event=>{if(dragging?.id===event.pointerId&&!list.hasPointerCapture(event.pointerId))resetDrag();};
+
   selectSong(selectedSong);
 }
 async function home(){
   if(starting)return;
   state='idle';song=null;chart=[];particles=[];held.clear();pointers.clear();
   document.body.classList.remove('is-playing');buttons.forEach(b=>b.classList.remove('active'));
-  score=combo=maxCombo=total=judged=0;hud();$('pause').disabled=true;$('pause').textContent='일시정지 Ⅱ';
+  score=combo=maxCombo=total=judged=wrongPresses=0;hud();$('pause').disabled=true;$('pause').textContent='일시정지 Ⅱ';
   $('countdown').textContent='';$('judge').textContent='';$('combo-burst').textContent='';$('progress').style.width='0%';
   $('song-picker').hidden=false;
   showOverlay('READY, SET, GROOVE!','오늘의 텐션을 올려봐요!','곡을 고르고 빛이 건반에 닿는 순간 눌러주세요.','LET’S PLAY');

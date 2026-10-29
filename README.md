@@ -55,3 +55,14 @@ The viewport requests a fixed 1× scale. CSS disables pinch/double-tap zoom on t
 - The combo ring advances toward 10, 25, 50, 100, then each additional 50 hits. Milestones show larger text and star/music-note particles. MISS triggers a brief bottom-lane wave. Reduced-motion preferences suppress UI animation.
 - Results: S at 95% accuracy, A at 85%, B at 70%, otherwise C.
 - The selected song has an explicit 8-second preview button. Changing tracks, starting the game, returning home, or leaving the tab stops preview audio.
+
+
+## Combo tiers, scoring and results (scoring version 2)
+
+READY ×1.0; NICE at 10 ×1.1; SUPER at 25 ×1.2; ULTRA at 50 ×1.3; ULTRA FEVER at 100 ×1.5; LEGEND at 150 ×1.7. A hit uses the tier reached by that hit. PERFECT base value is 1000, GOOD 650. A wrong press during play is MISS, resets combo/tier/multiplier, and is counted separately from missed notes. Auto-repeat and ongoing holds are not wrong presses. New scoring-version best-score keys avoid comparing scores from different rules.
+
+The overall score is 70 × weighted accuracy + 20 × (max combo / chart-note count) + 10 × (successful notes / (chart-note count + wrong presses)). Weighted accuracy = (Perfect + 0.65 × Good) / (chart-note count + wrong presses). Each ratio is bounded by normal completed-chart counts. Results show the three components, individual judgments, wrong presses, max combo, best tier, score, grade and advice.
+
+Design reference: the official osu! wiki documents accuracy and combo as distinct gameplay metrics (https://osu.ppy.sh/wiki/en/Gameplay/Accuracy and https://osu.ppy.sh/wiki/en/Gameplay/Combo_(score_multiplier)). The tier names, thresholds, UI and 70/20/10 formula here are original Neon Beat rules.
+
+CD selection has no arrow buttons: drag/swipe follows the pointer, then snaps to the neighboring disc. Pointer capture preserves motion outside the shelf. Short drags snap back; completed drags suppress the following click; keyboard arrow navigation remains available.
