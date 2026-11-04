@@ -12,6 +12,7 @@ let score=0,combo=0,maxCombo=0,total=0,judged=0,origin=0,autoIndex=0,beatIndex=0
 let flashes=[0,0,0,0],particles=[],judgeUntil=0,burstUntil=0,starting=false,resumeGrace=0;
 const held=new Set(),pointers=new Map();
 const runControl=createActionGuard(),allowSongTap=createTapGuard(),allowDifficultyTap=createTapGuard();
+let backgroundPauseRequested=false;
 let cdAnimation=null,switchingPause=false,previewToken=0,previewTimer=null,previewRunning=false;
 installZoomLock(document,window);
 function read(key,fallback){try{return localStorage.getItem(key)??fallback;}catch{return fallback;}}
@@ -63,7 +64,7 @@ function showOverlay(label,title,copy,button){
 }
 async function start(){
   if(starting||!['idle','ended'].includes(state))return;
-  starting=true;$('start').disabled=true;$('home').disabled=true;
+  starting=true;backgroundPauseRequested=false;$('start').disabled=true;$('home').disabled=true;
   try{
     await stopPreview();await audio.reset();volume();song=makeSong(level,selectedSong);
     chart=song.notes.filter(n=>n.playable).map(n=>({...n,result:null}));
@@ -75,7 +76,7 @@ async function start(){
   }catch{
     state='idle';song=null;$('song-picker').hidden=false;
     showOverlay('AUDIO','소리를 켜고 다시 시도해주세요','시작 버튼을 다시 눌러주세요.','다시 시작');
-  }finally{starting=false;$('start').disabled=false;$('home').disabled=false;}
+  }finally{starting=false;$('start').disabled=false;$('home').disabled=false;if((document.hidden||backgroundPauseRequested)&&state==='playing')await pause();}
 }
 async function pause(){
   if(switchingPause||starting)return;
@@ -176,7 +177,7 @@ buttons.forEach((button,lane)=>{
   button.onpointerup=button.onpointercancel=lift;
   button.onlostpointercapture=event=>{if(button.hasPointerCapture(event.pointerId))return;lift(event);};
 });
-function clearInput(){stopPreview();held.clear();pointers.clear();buttons.forEach(b=>b.classList.remove('active'));if(state==='playing')pause();}
+function clearInput(){if(starting)backgroundPauseRequested=true;stopPreview().catch(()=>{});held.clear();pointers.clear();buttons.forEach(b=>b.classList.remove('active'));if(state==='playing')pause().catch(()=>{});}
 window.addEventListener('blur',clearInput);document.addEventListener('visibilitychange',()=>{if(document.hidden)clearInput();});
 function schedule(t){
   while(autoIndex<song.notes.length&&song.notes[autoIndex].time<t+.15){
